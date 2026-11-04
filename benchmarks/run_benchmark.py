@@ -1,12 +1,13 @@
 import argparse
 import json
 import platform
-import time
 from datetime import datetime, timezone
 
 import mlx.core as mx
 from mlx_lm import load, stream_generate
 from pathlib import Path
+
+from benchmark_core import build_prompt_tokens, measure_stream
 
 
 def main():
@@ -40,50 +41,50 @@ def main():
     print("Loading model...")
     model, tokenizer = load(args.model)
 
-    # Construct a prompt with exactly the requested token count.
-    text = "hello "
-    token_ids = tokenizer.encode(text, add_special_tokens=False)
-
-    while len(token_ids) < args.input_len:
-        token_ids.extend(tokenizer.encode(text, add_special_tokens=False))
-
-    token_ids = token_ids[:args.input_len]
-    actual_input_tokens = len(token_ids)
+    token_ids = build_prompt_tokens(tokenizer, args.input_len)
     
     print("Running inference...")
 
     
     mx.reset_peak_memory()
 
-    start_time = time.perf_counter()
-
-    last_response = None
-
-    for response in stream_generate(
-        model,
-        tokenizer,
-        prompt=token_ids,
-        max_tokens=args.output_len
-    ):
-        last_response = response
-
-    elapsed_time = time.perf_counter() - start_time
-
-    if last_response is None:
-        raise RuntimeError("Model generated no tokens.")
-
-    actual_output_tokens = last_response.generation_tokens
+    mx.synchronize()
+    metrics, last_response = measure_stream(
+        stream_generate(
+            model,
+            tokenizer,
+            prompt=token_ids,
+            max_tokens=args.output_len
+        )
+    )
 
     result = {
         "model": args.model,
         "framework": "MLX-LM",
+        "requested_input_tokens": args.input_len,
+        "requested_output_tokens": args.output_len,
         "input_tokens": last_response.prompt_tokens,
-        "output_tokens": actual_output_tokens,
-        "elapsed_time_seconds": round(elapsed_time, 4),
+        "output_tokens": last_response.generation_tokens,
+        "ttft_seconds": round(metrics["ttft_seconds"], 6),
+        "decode_time_seconds": round(metrics["decode_time_seconds"], 6),
+        "decode_tokens": metrics["decode_tokens"],
+        "decode_tokens_per_second": round(
+            metrics["decode_tokens_per_second"], 2
+        ) if metrics["decode_tokens_per_second"] is not None else None,
+        "mean_inter_token_latency_ms": round(
+            metrics["mean_inter_token_latency_ms"], 3
+        ) if metrics["mean_inter_token_latency_ms"] is not None else None,
+        "p50_inter_token_latency_ms": round(
+            metrics["p50_inter_token_latency_ms"], 3
+        ) if metrics["p50_inter_token_latency_ms"] is not None else None,
+        "p95_inter_token_latency_ms": round(
+            metrics["p95_inter_token_latency_ms"], 3
+        ) if metrics["p95_inter_token_latency_ms"] is not None else None,
+        "elapsed_time_seconds": round(metrics["total_time_seconds"], 6),
         "prompt_tokens_per_second": round(
             last_response.prompt_tps, 2
         ),
-        "generation_tokens_per_second": round(
+        "mlx_lm_generation_tokens_per_second": round(
             last_response.generation_tps, 2
         ),
         "peak_memory_gb": round(

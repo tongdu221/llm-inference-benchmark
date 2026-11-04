@@ -223,3 +223,7 @@ __marimo__/
 benchmarks/results/*
 !benchmarks/results/batch_benchmark_20261104_001244_525605.json
 !benchmarks/results/generation_throughput.png
+!benchmarks/results/batch_benchmark_20261104_214735_852055.json
+!benchmarks/results/ttft_by_input.png
+!benchmarks/results/decode_throughput.png
+!benchmarks/results/latency_by_output.png

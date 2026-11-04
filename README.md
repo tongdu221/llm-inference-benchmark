@@ -13,7 +13,11 @@ The repository contains two components:
 
 **Inference Benchmark**
 - Configurable input and maximum output token lengths
-- Prompt processing and generation throughput measurement
+- Input/output length matrix experiments
+- Time to first token (TTFT) measured from the first streamed token
+- Decode throughput measured after the first token
+- Mean, p50, and p95 inter-token latency (ITL)
+- Prompt processing and end-to-end latency measurement
 - Inference latency and peak memory tracking
 - Warm-up runs and repeated experiments
 - Mean and sample standard deviation calculations
@@ -32,18 +36,33 @@ Framework: MLX-LM 0.32.2
 
 Hardware: Apple MacBook Air M2
 
-Configuration: 128 maximum output tokens, three measured runs per input length, with one warm-up run per configuration.
+Configuration: input lengths of 128, 256, 512, and 1024 tokens crossed with maximum output lengths of 64, 128, 256, and 512 tokens. Each of the 16 configurations has one warm-up followed by three measured runs.
 
-| Input Tokens | Mean Generation Throughput (tokens/s) | Std (tokens/s) |
-|---|---:|---:|
-| 128 | 173.30 | 0.41 |
-| 256 | 166.71 | 0.19 |
-| 512 | 149.68 | 3.09 |
-| 1024 | 132.31 | 0.15 |
+The table below shows the 128-output-token slice of the new benchmark matrix (mean of three measured runs).
 
-![Generation throughput benchmark](benchmarks/results/generation_throughput.png)
+| Input Tokens | TTFT (ms) | Decode Throughput (tokens/s) | End-to-End Latency (s) | p95 ITL (ms) |
+|---|---:|---:|---:|---:|
+| 128 | 106.5 | 159.82 | 0.901 | 7.30 |
+| 256 | 193.7 | 152.72 | 1.025 | 7.62 |
+| 512 | 372.9 | 138.80 | 1.288 | 8.17 |
+| 1024 | 747.7 | 121.45 | 1.793 | 9.12 |
 
-In these experiments, average generation throughput decreased as input length increased. From 128 to 1024 input tokens, generation throughput decreased by approximately 23.7%.
+![TTFT by input length](benchmarks/results/ttft_by_input.png)
+
+![Decode throughput](benchmarks/results/decode_throughput.png)
+
+![End-to-end latency by output length](benchmarks/results/latency_by_output.png)
+
+TTFT increased with input length and was nearly independent of the requested output length, as expected because TTFT is measured before the remaining tokens are decoded. Decode throughput also decreased as the context grew: from 159.82 tokens/s at 128 input tokens and 128 output tokens to 121.45 tokens/s at 1024 input tokens and 128 output tokens.
+
+### Metric definitions
+
+- **TTFT:** wall-clock time immediately before consuming the MLX-LM stream until the first token is yielded. This includes prompt processing and first-token generation.
+- **Decode throughput:** `(generated tokens - 1) / (final-token time - first-token time)`. The first token is excluded so prefill/TTFT is not mixed into decode speed.
+- **Inter-token latency (ITL):** wall-clock intervals between consecutive streamed tokens. The JSON output records mean, p50, and p95 ITL.
+- **End-to-end latency:** wall-clock time from immediately before stream consumption until the final token is yielded.
+
+The raw 48-run matrix is stored in `benchmarks/results/batch_benchmark_20261104_214735_852055.json`.
 
 These results represent a small exploratory benchmark rather than a comprehensive hardware performance evaluation.
 
@@ -66,10 +85,14 @@ llm-inference-benchmark/
 ├── benchmarks/
 │   ├── run_benchmark.py
 │   ├── batch_benchmark.py
+│   ├── benchmark_core.py
 │   ├── plot_benchmark.py
 │   └── results/
 │       ├── batch_benchmark_20261104_001244_525605.json
-│       └── generation_throughput.png
+│       ├── batch_benchmark_20261104_214735_852055.json
+│       ├── ttft_by_input.png
+│       ├── decode_throughput.png
+│       └── latency_by_output.png
 ├── visualizer/
 │   ├── parse_logs.py
 │   ├── plot_cache.py
@@ -115,11 +138,22 @@ python benchmarks/batch_benchmark.py
 
 Runs four input-length configurations (128, 256, 512, and 1024 tokens), with one warm-up and three measured runs per configuration.
 
+By default it crosses those inputs with output lengths of 64, 128, 256, and 512 tokens. The matrix and repetition counts are configurable:
+
+```bash
+python benchmarks/batch_benchmark.py \
+  --input-lengths 128 256 512 1024 \
+  --output-lengths 64 128 256 512 \
+  --warmups 1 --repeats 3
+```
+
 ### Generate benchmark visualization
 
 ```bash
 python benchmarks/plot_benchmark.py
 ```
+
+The plotting script automatically selects the newest result containing TTFT/decode fields, or accepts an explicit file through `--input`. It generates the three charts shown above without opening an interactive window.
 
 ### Generate KV-cache visualization
 
@@ -147,15 +181,14 @@ The benchmark scripts in this repository are a separate implementation using MLX
 - Benchmarks use a 4-bit quantized model rather than the original full-precision model.
 - Input prompts are constructed from repeated tokens rather than representative natural-language workloads.
 - Each configuration currently has only three measured runs.
-- Warm-up is performed once per input-length configuration.
+- Warm-up is performed once per input/output-length configuration.
 - Tests are executed in a fixed order, without controlling thermal conditions or other system activity.
 - The KV-cache visualization uses synthetic demonstration data rather than actual scheduler measurements.
 
 ## 9. Future Improvements
 
-- Support additional models and input/output configurations
-- Add configurable repetition counts and warm-up settings
-- Measure time to first token (TTFT) and decode latency separately
+- Add representative natural-language and coding prompt sets
+- Randomize configuration order and record thermal/power metadata
 - Extend benchmarking to multiple concurrent requests
 - Improve KV-cache visualization using complete scheduler logs
 - Add more detailed experiment metadata and reproducibility checks
