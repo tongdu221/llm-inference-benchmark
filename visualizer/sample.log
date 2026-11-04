@@ -1,0 +1,4 @@
+# Synthetic nano-vLLM-style log data for visualizer demonstration
+[Task3] iter=1 phase=decode batch=1 running=1 waiting=0 decode_tokens=1 kv_blocks=4/256
+[Task3] iter=2 phase=decode batch=1 running=1 waiting=0 decode_tokens=1 kv_blocks=5/256
+[Task3] iter=3 phase=decode batch=1 running=0 waiting=0 decode_tokens=1 kv_blocks=0/256
